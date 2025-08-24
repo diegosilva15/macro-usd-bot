@@ -150,7 +150,6 @@ class DataIngestor:
     
     def _get_static_economic_calendar(self, days: int) -> List[Dict[str, Any]]:
         """Retorna calendário econômico estático quando TE_API não disponível"""
-        from datetime import date
         import calendar
         
         today = date.today()
