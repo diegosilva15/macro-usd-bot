@@ -342,13 +342,19 @@ Análises automáticas nos horários de release (NY timezone).
 async def main():
     """Função principal"""
     bot = MacroEconomicBot()
-    await bot.run()
+    try:
+        await bot.run()
+    except KeyboardInterrupt:
+        logger.info("Bot finalizado pelo usuário")
+    except Exception as e:
+        logger.error(f"Erro fatal: {e}")
+        raise
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot finalizado pelo usuário")
+        logger.info("👋 Bot finalizado pelo usuário")
     except Exception as e:
-        logger.error(f"Erro fatal: {e}")
+        logger.error(f"💥 Erro crítico: {e}")
         sys.exit(1)
