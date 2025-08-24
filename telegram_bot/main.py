@@ -334,6 +334,10 @@ Análises automáticas nos horários de release (NY timezone).
         except Exception as e:
             logger.error(f"Erro fatal: {e}")
             raise
+        finally:
+            # Cleanup
+            if self.data_ingestor:
+                await self.data_ingestor.close()
 
 async def main():
     """Função principal"""
