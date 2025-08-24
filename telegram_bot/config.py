@@ -184,10 +184,10 @@ class Config:
     
     def _validate_config(self):
         """Valida configurações obrigatórias"""
+        # FRED_API_KEY é obrigatório, TE_API_KEY é opcional
         required_vars = [
             ('BOT_TOKEN', self.bot_token),
             ('DEFAULT_CHAT_ID', self.default_chat_id),
-            ('TE_API_KEY', self.te_api_key),
             ('FRED_API_KEY', self.fred_api_key)
         ]
         
@@ -198,6 +198,10 @@ class Config:
         
         if missing_vars:
             raise ValueError(f"Variáveis de ambiente obrigatórias não configuradas: {', '.join(missing_vars)}")
+        
+        # Warning se TE_API_KEY não estiver configurado
+        if not self.te_api_key:
+            print("⚠️  TE_API_KEY não configurado - usando apenas dados do FRED")
     
     def get_indicator_config(self, indicator: str) -> Dict:
         """Retorna configuração de um indicador específico"""
