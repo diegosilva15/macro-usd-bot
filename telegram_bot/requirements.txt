@@ -7,7 +7,6 @@ asyncio-throttle==1.0.2
 # HTTP & API Clients
 aiohttp==3.9.1
 requests==2.32.3
-httpx==0.25.2
 
 # Scheduling & Time
 APScheduler==3.10.4
