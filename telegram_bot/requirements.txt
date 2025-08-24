@@ -1,0 +1,46 @@
+# Telegram Bot Macroeconômico USD - Dependencies
+
+# Core Bot Framework
+python-telegram-bot==21.4
+asyncio-throttle==1.0.2
+
+# HTTP & API Clients
+aiohttp==3.9.1
+requests==2.32.3
+httpx==0.25.2
+
+# Scheduling & Time
+APScheduler==3.10.4
+pytz==2023.3
+python-dateutil==2.8.2
+
+# Environment & Configuration  
+python-dotenv==1.0.0
+pydantic==2.5.2
+
+# Database & Storage
+sqlite3  # Built-in with Python
+pandas==2.1.4
+numpy==1.26.2
+
+# Data Processing & Analysis
+statistics  # Built-in with Python
+dataclasses  # Built-in with Python 3.7+
+
+# Async & Utilities
+asyncio  # Built-in with Python
+typing  # Built-in with Python
+pathlib  # Built-in with Python
+logging  # Built-in with Python
+json  # Built-in with Python
+csv  # Built-in with Python
+calendar  # Built-in with Python
+
+# Development & Testing (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+flake8==6.1.0
+
+# Docker & Deployment
+gunicorn==21.2.0
