@@ -107,17 +107,19 @@ class DataIngestor:
     async def get_upcoming_releases(self, days: int = 7) -> List[Dict[str, Any]]:
         """Busca próximos releases econômicos"""
         try:
+            # Se não tem TE_API_KEY, retorna calendário fixo baseado em datas típicas
+            if not self.config.te_api_key:
+                return self._get_static_economic_calendar(days)
+            
             end_date = datetime.now() + timedelta(days=days)
             
             url = f"{self.config.te_base_url}/calendar"
             params = {
                 'c': 'united states',
                 'f': 'json',
-                'format': 'json'
+                'format': 'json',
+                'key': self.config.te_api_key
             }
-            
-            if self.config.te_api_key:
-                params['key'] = self.config.te_api_key
             
             async with self.session.get(url, params=params) as response:
                 if response.status == 200:
@@ -140,11 +142,55 @@ class DataIngestor:
                     return sorted(releases, key=lambda x: x['date'])
                 else:
                     logger.error(f"Erro na API TradingEconomics: {response.status}")
-                    return []
+                    return self._get_static_economic_calendar(days)
                     
         except Exception as e:
             logger.error(f"Erro ao buscar upcoming releases: {e}")
-            return []
+            return self._get_static_economic_calendar(days)
+    
+    def _get_static_economic_calendar(self, days: int) -> List[Dict[str, Any]]:
+        """Retorna calendário econômico estático quando TE_API não disponível"""
+        from datetime import date
+        import calendar
+        
+        today = date.today()
+        releases = []
+        
+        # Adiciona releases típicos baseados em padrões conhecidos
+        # NFP - Primeira sexta-feira do mês às 08:30
+        first_friday = self._get_first_friday_of_month(today)
+        if first_friday <= today + timedelta(days=days):
+            releases.append({
+                'date': first_friday.strftime('%Y-%m-%d'),
+                'time': '08:30',
+                'event': 'Nonfarm Payrolls / Unemployment Rate',
+                'importance': 'High',
+                'country': 'United States',
+                'consensus': 'N/A',
+                'previous': 'N/A'
+            })
+        
+        # CPI - Meio do mês às 08:30
+        mid_month = today.replace(day=13)
+        if mid_month <= today + timedelta(days=days) and mid_month >= today:
+            releases.append({
+                'date': mid_month.strftime('%Y-%m-%d'),
+                'time': '08:30',
+                'event': 'Consumer Price Index',
+                'importance': 'High',
+                'country': 'United States',
+                'consensus': 'N/A',
+                'previous': 'N/A'
+            })
+        
+        return sorted(releases, key=lambda x: x['date'])
+    
+    def _get_first_friday_of_month(self, base_date: date) -> date:
+        """Encontra a primeira sexta-feira do mês"""
+        first_day = base_date.replace(day=1)
+        # Friday is weekday 4
+        days_until_friday = (4 - first_day.weekday()) % 7
+        return first_day + timedelta(days=days_until_friday)
     
     async def check_fomc_today(self) -> bool:
         """Verifica se há meeting do FOMC hoje"""
