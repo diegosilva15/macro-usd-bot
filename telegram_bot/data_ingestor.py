@@ -214,15 +214,23 @@ class DataIngestor:
     async def _fetch_from_fred(self, event_name: str) -> List[EconomicDataPoint]:
         """Busca dados da API FRED"""
         try:
-            # Map event name to FRED series ID
+            # Map event name to FRED series ID - EXPANDIDO COM MAIS INDICADORES!
             fred_mapping = {
                 'Nonfarm Payrolls': 'PAYEMS',
-                'Unemployment Rate': 'UNRATE',
+                'Unemployment Rate': 'UNRATE', 
                 'Consumer Price Index': 'CPIAUCSL',
                 'Core CPI': 'CPILFESL',
                 'Personal Consumption Expenditures': 'PCE',
                 'Core PCE': 'PCEPILFE',
-                'Initial Jobless Claims': 'ICSA'
+                'Initial Jobless Claims': 'ICSA',
+                'Average Hourly Earnings': 'AHETPI',
+                'ADP Employment Change': 'ADPMNUSNERSA',  # ADP via FRED
+                'ISM Manufacturing PMI': 'NAPM',
+                'ISM Services PMI': 'NAPMSI',
+                'GDP': 'GDP',
+                'Retail Sales': 'RSAFS',
+                'Industrial Production': 'INDPRO',
+                'Consumer Confidence': 'UMCSENT'
             }
             
             series_id = fred_mapping.get(event_name)
