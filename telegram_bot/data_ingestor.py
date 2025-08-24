@@ -6,7 +6,7 @@ Integra com TradingEconomics e FRED APIs
 import asyncio
 import aiohttp
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any
 import json
 from dataclasses import dataclass
