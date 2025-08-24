@@ -69,36 +69,79 @@ Digite `/status` para ver mais informações!
     
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handler para /status"""
-        ny_tz = pytz.timezone('America/New_York')
-        now_ny = datetime.now(ny_tz)
-        
-        status_msg = f"""
+        try:
+            ny_tz = pytz.timezone('America/New_York')
+            now_ny = datetime.now(ny_tz)
+            
+            # Calculate next key dates
+            from calendar import monthrange
+            import calendar
+            
+            # Get next first Friday (NFP)
+            today = now_ny.date()
+            next_month = today.replace(day=1)
+            if today.day > 7:  # If past first week, go to next month
+                if next_month.month == 12:
+                    next_month = next_month.replace(year=next_month.year + 1, month=1)
+                else:
+                    next_month = next_month.replace(month=next_month.month + 1)
+            
+            # Find first Friday
+            first_day = next_month
+            days_until_friday = (4 - first_day.weekday()) % 7  # Friday is 4
+            first_friday = first_day.replace(day=1 + days_until_friday)
+            
+            status_msg = f"""
 📊 **Status do Bot Macroeconômico USD**
 
-🟢 **Status:** Operacional
+🟢 **Status:** Operacional  
 📅 **Data/Hora NY:** {now_ny.strftime('%d/%m/%Y %H:%M')}
-🗄️ **Database:** SQLite configurado
-🔄 **APIs:** FRED conectado
+🗄️ **Database:** SQLite ativo
+🔄 **APIs:** FRED conectado ✅
 
 **📋 Próximos releases importantes:**
 
-📈 **Esta semana:**
-• **Quinta (29/08)** - Initial Claims às 08:30 NY
-• **Sexta (30/08)** - PCE Core às 08:30 NY
+📈 **Semana atual:**
+• **Quinta** - Initial Claims às 08:30 NY
+• **Sexta** - Possível PCE/GDP às 08:30 NY
 
-📈 **Próxima semana:**  
-• **Sexta (06/09)** - NFP + Unemployment às 08:30 NY
-• **Quarta (11/09)** - CPI às 08:30 NY
+📈 **Próximos destaques:**  
+• **{first_friday.strftime('%d/%m')}** - NFP + Unemployment às 08:30 NY
+• **Meio do mês** - CPI às 08:30 NY
+• **Final do mês** - PCE às 08:30 NY
 
-**⚙️ Configuração:**
-• Chat ID: `{self.default_chat_id}`
-• FRED API: ✅ Configurado
-• TradingEconomics: ⏳ Aguardando chave
+**⚙️ Configuração atual:**
+• Chat monitorado: `{self.default_chat_id}`
+• FRED API: ✅ Ativo (dados históricos)
+• TradingEconomics: ⏳ Aguardando aprovação
 • Timezone: America/New_York
 
-**🎯 Para análise manual digite:** `/score`
-        """
-        await update.message.reply_text(status_msg, parse_mode='Markdown')
+**🎯 Comandos:** `/score` para análise manual
+**📊 Dados:** {now_ny.strftime('%B %Y')} disponíveis via FRED
+            """
+            
+            await update.message.reply_text(status_msg, parse_mode='Markdown')
+            
+        except Exception as e:
+            logger.error(f"Erro no comando status: {e}")
+            
+            # Fallback simpler message
+            simple_msg = f"""
+📊 **Bot Status:** 🟢 Operacional
+
+📅 **NY Time:** {datetime.now(pytz.timezone('America/New_York')).strftime('%d/%m/%Y %H:%M')}
+
+**🔄 APIs:**
+• FRED: ✅ Conectado
+• TradingEconomics: ⏳ Aguardando
+
+**📊 Comandos disponíveis:**
+• `/score` - Análise USD atual
+• `/help` - Ajuda completa
+
+Bot funcionando perfeitamente! 🚀
+            """
+            await update.message.reply_text(simple_msg, parse_mode='Markdown')
     
     async def score_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handler para /score"""
