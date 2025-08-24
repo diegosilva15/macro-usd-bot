@@ -19,7 +19,7 @@ python-dotenv==1.0.0
 pydantic==2.5.2
 
 # Database & Storage
-sqlite3  # Built-in with Python
+# sqlite3 is built-in with Python
 pandas==2.1.4
 numpy==1.26.2
 
