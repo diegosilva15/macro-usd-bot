@@ -24,17 +24,7 @@ pandas==2.1.4
 numpy==1.26.2
 
 # Data Processing & Analysis
-statistics  # Built-in with Python
-dataclasses  # Built-in with Python 3.7+
-
-# Async & Utilities
-asyncio  # Built-in with Python
-typing  # Built-in with Python
-pathlib  # Built-in with Python
-logging  # Built-in with Python
-json  # Built-in with Python
-csv  # Built-in with Python
-calendar  # Built-in with Python
+# statistics, dataclasses, asyncio, typing, pathlib, logging, json, csv, calendar are built-in with Python
 
 # Development & Testing (optional)
 pytest==7.4.3
