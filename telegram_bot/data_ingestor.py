@@ -68,16 +68,19 @@ class DataIngestor:
         
         for event_name in event_names:
             try:
-                # Try TradingEconomics first
-                te_data = await self._fetch_from_trading_economics(event_name)
-                if te_data:
-                    data_points.extend(te_data)
-                    continue
-                
-                # Fallback to FRED if available
+                # Try FRED first (more reliable)
                 fred_data = await self._fetch_from_fred(event_name)
                 if fred_data:
                     data_points.extend(fred_data)
+                    continue
+                
+                # Fallback to TradingEconomics if FRED doesn't have data
+                if self.config.te_api_key:
+                    te_data = await self._fetch_from_trading_economics(event_name)
+                    if te_data:
+                        data_points.extend(te_data)
+                else:
+                    logger.info(f"TradingEconomics API não configurada, usando apenas FRED para {event_name}")
                     
             except Exception as e:
                 logger.error(f"Erro ao buscar dados para {event_name}: {e}")
