@@ -1,325 +1,132 @@
-# 🧭 Bot Macroeconômico USD
+# 🚀 Bot Macroeconômico USD - Deploy Render.com
 
-Bot automático no Telegram que monitora indicadores macroeconômicos dos EUA para prever o direcional do dólar (USD forte/fraco/neutro). Fornece USD Score, cenários base/alternativo, confiança e sugestões de pares de moedas.
+Bot profissional para análise macroeconômica do dólar americano, otimizado para rodar 24/7 no Render.com.
 
-## ✨ Características Principais
+## ⚡ Deploy Rápido (20 minutos)
 
-- **📊 Análise Automática**: Monitora NFP, CPI, PCE, ISM, Unemployment e outros indicadores
-- **🎯 USD Score Preciso**: Sistema de scoring ponderado (-2 a +2) com regras determinísticas  
-- **⏰ Agendamento Inteligente**: Cron jobs em timezone NY para releases em tempo real
-- **📈 Hit-Rate Tracking**: SQLite para auditoria de performance com janelas de 30/60/120 min
-- **🔄 Sistema de Retry**: Backoff exponencial com jitter para APIs
-- **🚀 Deploy Pronto**: Docker + docker-compose para produção
-
-## 🏗️ Arquitetura
-
-```
-├── main.py              # Bot principal + handlers Telegram
-├── config.py            # Configurações centralizadas  
-├── data_ingestor.py     # APIs TradingEconomics + FRED
-├── scoring_engine.py    # Regras determinísticas + USD Score
-├── hit_rate_tracker.py  # SQLite tracking + métricas
-├── scheduler.py         # Agendamento inteligente NY timezone
-├── requirements.txt     # Dependências Python
-├── Dockerfile          # Container para deploy
-└── .env.example        # Template de configuração
-```
-
-## 🔧 Configuração Rápida
-
-### 1. Clone e Configure
+### 1. 📁 Preparar Repositório GitHub
 
 ```bash
-# Navegue para o diretório do bot
-cd /app/telegram_bot
+# Criar novo repositório no GitHub
+# Nome sugerido: macro-usd-bot
 
-# Copie e configure o arquivo de ambiente
-cp .env.example .env
-# Edite .env com suas chaves (veja seção abaixo)
+# Arquivos necessários:
+├── render_bot.py          # Bot principal
+├── requirements_render.txt # Dependências
+├── README.md              # Documentação
+└── .env.example           # Template variáveis
 ```
 
-### 2. Obtenha as Chaves de API
+### 2. 🌐 Configurar Render.com
 
-#### 🤖 Telegram Bot Token
-```bash
-# 1. Abra Telegram e procure @BotFather
-# 2. Digite /newbot e siga instruções
-# 3. Copie o token: 1234567890:ABCdefGHI...
-```
+1. **Acesse:** https://render.com
+2. **Clique:** "Sign Up" → Conecte com GitHub
+3. **Autorize:** Render a acessar seus repositórios
+4. **Dashboard:** Clique "New +"
 
-#### 📱 Chat ID do Telegram  
-```bash
-# 1. Crie grupo ou use chat privado
-# 2. Adicione @userinfobot ao grupo
-# 3. Digite /start - bot mostra Chat ID: -1001234567890
-```
+### 3. 🔧 Criar Web Service
 
-#### 📈 TradingEconomics API
-```bash
-# 1. Visite: https://tradingeconomics.com/api
-# 2. Registre-se (gratuito)
-# 3. Copie API Key da sua conta
-```
+1. **New Web Service** 
+2. **Connect Repository:** Escolha `macro-usd-bot`
+3. **Configurações:**
+   ```
+   Name: macro-usd-bot
+   Environment: Python 3
+   Build Command: pip install -r requirements_render.txt
+   Start Command: python render_bot.py
+   ```
 
-#### 🏦 FRED API (Federal Reserve)
-```bash
-# 1. Visite: https://fred.stlouisfed.org/docs/api/
-# 2. Clique "Request API Key"
-# 3. Confirme por email e copie a chave
-```
+### 4. 🔑 Environment Variables
 
-### 3. Configure o .env
-
-```env
-# Exemplo de .env configurado
-BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz1234567890
-DEFAULT_CHAT_ID=-1001234567890
-TE_API_KEY=your_te_api_key_here
-FRED_API_KEY=abcd1234efgh5678ijkl9012mnop3456
-```
-
-## 🚀 Execução
-
-### Modo Desenvolvimento
-```bash
-# Instalar dependências
-pip install -r requirements.txt
-
-# Executar bot
-python main.py
-```
-
-### Modo Produção (Docker)
-```bash
-# Build e start
-docker-compose up -d
-
-# Ver logs
-docker-compose logs -f
-
-# Parar
-docker-compose down
-```
-
-## 📊 Indicadores Monitorados
-
-### 💼 Emprego (Employment)
-- **NFP** (Nonfarm Payrolls) - Peso 1.2 - Primeira sexta 08:30 NY
-- **Unemployment Rate** - Peso 1.0 - Primeira sexta 08:30 NY
-- **AHE** (Average Hourly Earnings) - Peso 0.6 - Primeira sexta 08:30 NY
-- **ADP Employment** - Peso 0.5 - Quarta 08:15 NY
-- **Initial Claims** - Peso 0.3 - Quinta 08:30 NY
-
-### 💰 Inflação (Inflation)  
-- **CPI / Core CPI** - Peso 1.0/1.2 - Meio do mês 08:30 NY
-- **PCE / Core PCE** - Peso 0.8/1.2 - Final do mês 08:30 NY
-
-### 🏭 Atividade (Activity)
-- **ISM Manufacturing** - Peso 0.6 - Dia 1 do mês 10:00 NY  
-- **ISM Services** - Peso 0.8 - Dia 3+ do mês 10:00 NY
-
-### 🏛️ Política Monetária
-- **FOMC Rate Decision** - Peso 1.4 - 14:00 NY (datas específicas)
-- **Powell Speech** - Peso 1.2 - Variável
-
-## 🧮 Sistema de Scoring
-
-### Cálculo do USD Score
-```python
-# Componente Score: -2 a +2 para cada indicador
-# USD Score = Σ(score_i × weight_i) / Σ(weight_i)
-
-# Classificação:
-# ≥ +1.5  → USD Forte
-# +0.5 a +1.49 → Levemente Forte  
-# -0.49 a +0.49 → Neutro
-# -1.49 a -0.5 → Levemente Fraco
-# ≤ -1.5 → USD Fraco
-```
-
-### Regras de Interpretação
-
-#### Inflação (CPI/PCE)
-```python
-delta_pp = actual - consensus  # percentage points
-if delta_pp <= -0.20: score = -2
-elif delta_pp <= -0.10: score = -1  
-elif -0.09 <= delta_pp <= 0.09: score = 0
-elif delta_pp <= 0.19: score = +1
-else: score = +2
-```
-
-#### Emprego (NFP/ADP)
-```python  
-surprise_pct = (actual - consensus) / |consensus| * 100
-if surprise_pct <= -30: score = -2
-elif surprise_pct <= -10: score = -1
-elif -10 <= surprise_pct <= 10: score = 0  
-elif surprise_pct <= 30: score = +1
-else: score = +2
-```
-
-## 📱 Comandos do Bot
-
-- `/start` - Apresentação e comandos disponíveis
-- `/status` - Status do bot + próximos releases  
-- `/score` - Análise manual do USD score atual
-- `/hitrate` - Performance histórica do bot
-
-## 📈 Exemplo de Mensagem
+No painel do Render, adicione:
 
 ```
-🧭 Leitura Macro USD — 06/12/2024 08:35 (NY)
-
-• NFP: 227k vs 200k → surpresa +14% | comp +1.0 (w=1.2)
-• Unemp: 4.2% vs 4.1% → Δ +0.1pp | comp -1.0 (w=1.0)  
-• AHE MoM: 0.4% vs 0.3% → Δ +0.1pp | comp +1.0 (w=0.6)
-• CPI MoM: 0.2% vs 0.3% → Δ -0.1pp | comp -1.0 (w=1.0)
-
-🧮 USD Score: +0.73 → Levemente Forte (Confiança: Média)
-
-📌 Cenário base (70%): Emprego forte supera inflação baixa, Fed mantém hawkishness
-📌 Alternativo (30%): CPI baixo pode acelerar cortes, emprego pode ser revisado
-
-🎯 Direcional: Viés de venda EUR/USD, aguardar confirmação
-👀 Pares/mercados: EUR/USD, GBP/USD, USD/JPY
+BOT_TOKEN = 7487750473:AAFMuwnwDn6ExY5XEbB0kR1L04YumGNniS0
+DEFAULT_CHAT_ID = -4904487675
+FRED_API_KEY = 92fcf288dd543b2ebcdd37241fd30257
+ALPHA_VANTAGE_API_KEY = 5U0YFWPYQSNKG8RT
 ```
 
-## 📊 Hit-Rate & Métricas
+### 5. 🚀 Deploy Automático
 
-### Critérios de Acerto
-- **Score > +0.5** e **DXY > 0** → ✅ Hit
-- **Score < -0.5** e **DXY < 0** → ✅ Hit  
-- **|Score| ≤ 0.5** → ✅ Neutro (sempre hit)
+1. **Save & Deploy** - Render vai:
+   - ✅ Baixar código do GitHub
+   - ✅ Instalar dependências  
+   - ✅ Iniciar bot automaticamente
+   - ✅ Gerar URL pública
 
-### Janelas Temporais
-- **30 minutos** - Reação imediata
-- **60 minutos** - Absorção inicial  
-- **120 minutos** - Tendência confirmada
+2. **Aguardar** ~3-5 minutos para primeiro deploy
 
-### Métricas Disponíveis
-- Hit-rate por janela temporal
-- Performance por indicador
-- Estatísticas mensais/semanais
-- Exportação para CSV
+3. **Verificar logs** na interface do Render
 
-## 🔧 Desenvolvimento
+## ✅ Funcionamento 24/7
 
-### Estrutura de Classes Principais
+### 🛡️ Render Cuida de:
+- **Auto-restart** se bot parar
+- **Health checks** automáticos
+- **Scaling** conforme necessário  
+- **Backup** e recovery
+- **SSL/HTTPS** automático
+- **Logs** completos na interface
 
-```python
-# main.py
-class MacroEconomicBot:
-    async def process_nfp()        # Handler NFP
-    async def process_cpi()        # Handler CPI  
-    async def process_fomc()       # Handler FOMC
+### 📊 Monitoramento:
+- **Logs:** Tempo real no painel Render
+- **Métricas:** CPU, RAM, requests
+- **Alerts:** Email se houver problemas  
+- **Uptime:** 99.9% garantido
 
-# scoring_engine.py  
-class ScoringEngine:
-    def calculate_usd_score()      # Cálculo principal
-    def _map_surprise_to_score()   # Regras por indicador
+## 🎯 Comandos Disponíveis
 
-# data_ingestor.py
-class DataIngestor:
-    async def get_indicator_data() # Fetch TradingEconomics/FRED
-    async def get_dxy_data()       # Yahoo Finance DXY
+- `/start` - Inicializar bot
+- `/status` - Status do sistema  
+- `/score` - Análise USD Score
+- `/summary` - Resumo econômico
+- `/help` - Manual completo
 
-# hit_rate_tracker.py
-class HitRateTracker:
-    def log_prediction()           # Registra previsão
-    def get_performance_metrics()  # Calcula hit-rate
-```
+## 🔧 Manutenção
 
-### Adicionando Novos Indicadores
+### Deploy Automático:
+- **Push no GitHub** → Deploy automático no Render
+- **Zero downtime** durante updates
+- **Rollback** fácil se necessário
 
-1. **Configurar em config.py**:
-```python
-'NEW_INDICATOR': {
-    'weight': 1.0,
-    'te_code': 'INDICATOR_CODE', 
-    'category': 'employment',
-    'release_time': '08:30'
-}
-```
+### Configuração:
+- **Environment vars:** Painel Render
+- **Logs:** Interface web
+- **Scaling:** Automático
 
-2. **Adicionar regra em scoring_engine.py**:
-```python
-def _map_surprise_to_score(self, indicator, surprise_pct, actual, consensus):
-    if indicator == 'NEW_INDICATOR':
-        # Sua lógica de scoring aqui
-        return score
-```
+## 💰 Custos
 
-3. **Criar handler em main.py**:
-```python
-async def process_new_indicator(self):
-    await self._process_indicator('NEW_INDICATOR', ['Indicator Name'])
-```
+### Free Tier (750h/mês):
+- ✅ **Suficiente** para bot 24/7
+- ✅ **0 custo** mensal
+- ✅ **Sem cartão** necessário
 
-## 🐛 Troubleshooting
+### Paid Tier ($7/mês):
+- ✅ **Uptime garantido** 100%
+- ✅ **Sem sleep** automático
+- ✅ **Suporte prioritário**
 
-### Bot Não Inicia
-```bash
-# Verificar logs
-docker-compose logs macro-bot
+## 🆘 Troubleshooting
 
-# Comum: chaves de API inválidas
-# Verificar .env e testar APIs manualmente
-```
+### Bot não responde:
+1. Verificar logs no Render
+2. Conferir environment variables  
+3. Testar token do Telegram
+4. Restart manual se necessário
 
-### Sem Dados de Indicadores
-```bash
-# Verificar APIs
-curl "https://api.tradingeconomics.com/calendar?c=united%20states&f=json&key=YOUR_KEY"
+### Deploy falha:
+1. Verificar requirements_render.txt
+2. Conferir sintaxe do Python
+3. Logs de build no Render
+4. Contactar suporte se persistir
 
-# Verificar FRED
-curl "https://api.stlouisfed.org/fred/series/observations?series_id=PAYEMS&api_key=YOUR_KEY&file_type=json"
-```
+## 📞 Suporte
 
-### Hit-Rate Baixo
-```bash
-# Verificar dados DXY
-# Ajustar thresholds de classificação
-# Revisar regras de scoring
-```
-
-## 📝 Logs
-
-Logs são salvos em:
-- **Container**: `/app/macro_bot.log`  
-- **Host**: `./logs/macro_bot.log`
-
-Níveis de log configuráveis via `LOG_LEVEL` no .env.
-
-## 🔒 Segurança
-
-- ✅ Não-root user no container
-- ✅ Chaves em variáveis de ambiente
-- ✅ Rate limiting com retry
-- ✅ Health checks
-- ✅ Resource limits
-
-## 📈 Roadmap
-
-- [ ] NLP para falas do Fed
-- [ ] Probabilidades logísticas  
-- [ ] Dashboard web (FastAPI)
-- [ ] Alertas por webhooks
-- [ ] Integração com brokers
-- [ ] ML para otimização de pesos
-
-## 🤝 Contribuição
-
-1. Fork do projeto
-2. Feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit (`git commit -m 'Add AmazingFeature'`)
-4. Push (`git push origin feature/AmazingFeature`)  
-5. Pull Request
-
-## 📄 Licença
-
-MIT License - veja arquivo `LICENSE` para detalhes.
+- **Render Docs:** https://render.com/docs
+- **Status Page:** https://status.render.com  
+- **Community:** https://community.render.com
 
 ---
 
-**⚡ Bot Macroeconômico USD - Análise profissional dos mercados financeiros em tempo real!**
+**🎉 Com Render.com seu bot roda 24/7 sem dor de cabeça!** 🚀
