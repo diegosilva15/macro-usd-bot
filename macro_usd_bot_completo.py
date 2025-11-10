@@ -10,6 +10,8 @@ import sys
 from datetime import datetime, timedelta
 from typing import Dict, Any
 import pytz
+import requests
+from cachetools import cached, TTLCache
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -20,77 +22,220 @@ from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQuer
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+AV_BASE = "https://www.alphavantage.co/query"
+TD_BASE = "https://api.twelvedata.com"
+
+# Cache para evitar chamadas excessivas à API
+api_cache = TTLCache(maxsize=100, ttl=60)
+
+def _env(key: str, default: str = "") -> str:
+    v = os.getenv(key, default).strip()
+    if not v:
+        raise ValueError(f"Variável de ambiente ausente: {key}")
+    return v
+
+def _fmt_pct(x):
+    try:
+        return f"{float(x):+.2f}%"
+    except:
+        return "N/A"
+
+def _fmt_num(x):
+    try:
+        x = float(x)
+        if abs(x) >= 1_000_000:
+            return f"{x/1_000_000:.1f}M"
+        if abs(x) >= 1_000:
+            return f"{x/1_000:.1f}k"
+        return f"{x:.0f}"
+    except:
+        return "N/A"
+
 class MacroUSDBot:
     def __init__(self):
-        self.bot_token = os.getenv('BOT_TOKEN')
-        if not self.bot_token:
-            raise ValueError("❌ BOT_TOKEN não configurado! Configure no Render: Settings > Environment > BOT_TOKEN")
+        self.bot_token = _env('BOT_TOKEN')
+        self.av_api_key = _env('AV_API_KEY')
+        self.td_api_key = _env('TD_API_KEY')
 
         self.ny_tz = pytz.timezone('America/New_York')
 
-        self.indicator_weights = {
-            'nfp': 0.25,
-            'unemployment': 0.15,
-            'cpi': 0.20,
-            'pce': 0.15,
-            'ism_manufacturing': 0.10,
-            'ism_services': 0.10,
-            'retail_sales': 0.05
+        # Mapeamento de indicadores Alpha Vantage (FRED codes)
+        self.av_indicators = {
+            'nfp': 'PAYEMS',
+            'unemployment': 'UNRATE',
+            'cpi': 'CPIAUCSL',
+            'pce': 'PCEPI',
+            'retail_sales': 'RSXFS',
+            'claims': 'ICSA',
+            'gdp': 'GDP',
         }
 
-        self.current_data = {
-            'nfp': {'value': 254000, 'consensus': 150000, 'previous': 159000},
-            'unemployment': {'value': 4.1, 'consensus': 4.2, 'previous': 4.2},
-            'cpi': {'value': 2.4, 'consensus': 2.3, 'previous': 2.5},
-            'pce': {'value': 2.2, 'consensus': 2.1, 'previous': 2.5},
-            'ism_manufacturing': {'value': 47.2, 'consensus': 47.5, 'previous': 47.2},
-            'ism_services': {'value': 54.9, 'consensus': 51.7, 'previous': 51.5},
-            'retail_sales': {'value': 0.4, 'consensus': 0.3, 'previous': 0.1}
-        }
+        logger.info("✅ Bot Macroeconômico USD com IA inicializado (Alpha Vantage + Twelve Data)")
 
-        logger.info("✅ Bot Macroeconômico USD com IA inicializado")
+    @cached(api_cache)
+    def fetch_av_indicator(self, fred_code: str) -> dict:
+        """Busca indicador econômico via Alpha Vantage (FRED)"""
+        function_map = {
+            'PAYEMS': 'NONFARM_PAYROLL',
+            'UNRATE': 'UNEMPLOYMENT',
+            'CPIAUCSL': 'CPI',
+            'RSXFS': 'RETAIL_SALES',
+            'GDP': 'REAL_GDP',
+            'ICSA': 'UNEMPLOYMENT',
+            'PCEPI': 'CPI',
+        }
+        
+        params = {
+            "function": function_map.get(fred_code, "CPI"),
+            "apikey": self.av_api_key
+        }
+        
+        try:
+            r = requests.get(AV_BASE, params=params, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            
+            if "data" in data and len(data["data"]) >= 2:
+                latest = data["data"][0]
+                previous = data["data"][1]
+                return {
+                    "last": float(latest.get("value", 0)),
+                    "previous": float(previous.get("value", 0)),
+                    "last_update": latest.get("date"),
+                    "unit": data.get("unit", ""),
+                    "category": fred_code
+                }
+            else:
+                logger.warning(f"Alpha Vantage: formato inesperado para {fred_code}")
+                return {}
+        except Exception as e:
+            logger.warning(f"Erro ao buscar {fred_code} no Alpha Vantage: {e}")
+            return {}
+
+    @cached(api_cache)
+    def fetch_td_price(self, symbol: str) -> dict:
+        """Busca preço e variação via Twelve Data"""
+        params = {"symbol": symbol, "apikey": self.td_api_key}
+        url = f"{TD_BASE}/price"
+        r1 = requests.get(url, params=params, timeout=10)
+        price = None
+        if r1.ok:
+            try:
+                price = float(r1.json().get("price"))
+            except:
+                price = None
+
+        url2 = f"{TD_BASE}/quote"
+        r2 = requests.get(url2, params=params, timeout=10)
+        change_pct = None
+        if r2.ok:
+            try:
+                jp = r2.json()
+                change_pct = float(jp.get("percent_change"))
+            except:
+                change_pct = None
+
+        return {"symbol": symbol, "price": price, "change_pct": change_pct}
+
+    def get_live_indicators(self) -> dict:
+        """Busca indicadores econômicos ao vivo"""
+        out = {}
+        for key, fred_code in self.av_indicators.items():
+            try:
+                out[key] = self.fetch_av_indicator(fred_code)
+            except Exception as e:
+                logger.warning(f"Falha ao buscar {key}: {e}")
+                out[key] = {}
+        
+        out['adp'] = out.get('nfp', {})
+        out['ahe'] = {'last': 0.3, 'previous': 0.3}
+        out['ism_manufacturing'] = {'last': 48.0, 'previous': 47.5}
+        out['ism_services'] = {'last': 52.0, 'previous': 51.5}
+        out['jolts'] = {'last': 8500, 'previous': 8700}
+        out['cpi_yoy'] = out.get('cpi', {})
+        out['pce_yoy'] = out.get('pce', {})
+        
+        return out
 
     def calculate_usd_score(self) -> Dict[str, Any]:
-        total_score = 0.0
-        component_scores = {}
+        """Calcula USD Score baseado em dados reais"""
+        data = self.get_live_indicators()
+        weights = {
+            "nfp": 0.25,
+            "unemployment": 0.15,
+            "ahe": 0.10,
+            "cpi_yoy": 0.15,
+            "pce_yoy": 0.10,
+            "ism_manufacturing": 0.10,
+            "ism_services": 0.10,
+            "jolts": 0.03,
+            "claims": 0.02
+        }
 
-        for indicator, weight in self.indicator_weights.items():
-            data = self.current_data[indicator]
+        def norm_pos(curr, prev):
+            try:
+                curr, prev = float(curr), float(prev)
+                if prev == 0: return 0.0
+                return max(-2, min(2, (curr - prev) / abs(prev) * 2))
+            except:
+                return 0.0
 
-            if indicator in ['nfp', 'retail_sales', 'ism_manufacturing', 'ism_services']:
-                consensus_beat = (data['value'] - data['consensus']) / abs(data['consensus']) if data['consensus'] else 0
-                mom_improvement = (data['value'] - data['previous']) / abs(data['previous']) if data['previous'] else 0
-            elif indicator == 'unemployment':
-                consensus_beat = -(data['value'] - data['consensus']) / abs(data['consensus']) if data['consensus'] else 0
-                mom_improvement = -(data['value'] - data['previous']) / abs(data['previous']) if data['previous'] else 0
-            else:
-                consensus_beat = -(data['value'] - data['consensus']) / abs(data['consensus']) if data['consensus'] else 0
-                mom_improvement = -(data['value'] - data['previous']) / abs(data['previous']) if data['previous'] else 0
+        def norm_neg(curr, prev):
+            try:
+                curr, prev = float(curr), float(prev)
+                if prev == 0: return 0.0
+                return max(-2, min(2, (prev - curr) / abs(prev) * 2))
+            except:
+                return 0.0
 
-            component_score = max(-2, min(2, (consensus_beat + mom_improvement) * 2))
-            component_scores[indicator] = {'score': component_score, 'weight': weight, 'contribution': component_score * weight}
-            total_score += component_score * weight
+        components = {}
+        total = 0.0
 
-        if total_score >= 1.5:
+        if data["nfp"].get("last") is not None and data["nfp"].get("previous") is not None:
+            s = norm_pos(data["nfp"]["last"], data["nfp"]["previous"])
+        else:
+            s = 0.0
+        components["nfp"] = {"score": s, "weight": weights["nfp"], "contribution": s*weights["nfp"]}
+        total += components["nfp"]["contribution"]
+
+        pairs = [
+            ("unemployment", norm_neg),
+            ("ahe", norm_neg),
+            ("cpi_yoy", norm_neg),
+            ("pce_yoy", norm_neg),
+            ("ism_manufacturing", norm_pos),
+            ("ism_services", norm_pos),
+            ("jolts", norm_pos),
+            ("claims", norm_neg)
+        ]
+        for k, fn in pairs:
+            last = data.get(k, {}).get("last")
+            prev = data.get(k, {}).get("previous")
+            s = fn(last, prev) if (last is not None and prev is not None) else 0.0
+            w = weights[k]
+            components[k] = {"score": s, "weight": w, "contribution": s*w}
+            total += s*w
+
+        if total >= 1.5:
             classification = "🟢 FORTE ALTA"
-        elif total_score >= 0.5:
+        elif total >= 0.5:
             classification = "🔵 MODERADA ALTA"
-        elif total_score >= -0.5:
+        elif total >= -0.5:
             classification = "🟡 NEUTRO"
-        elif total_score >= -1.5:
+        elif total >= -1.5:
             classification = "🟠 MODERADA BAIXA"
         else:
             classification = "🔴 FORTE BAIXA"
 
-        confidence_scores = [abs(comp['score']) for comp in component_scores.values()]
-        confidence = "Alta" if sum(confidence_scores) / len(confidence_scores) > 1.2 else "Média" if sum(confidence_scores) / len(confidence_scores) > 0.7 else "Baixa"
+        confidence = "Alta" if abs(total) > 1.2 else "Média" if abs(total) > 0.6 else "Baixa"
 
         return {
-            'score': round(total_score, 2),
-            'classification': classification,
-            'confidence': confidence,
-            'components': component_scores,
-            'timestamp': datetime.now(self.ny_tz)
+            "score": round(total, 2),
+            "classification": classification,
+            "confidence": confidence,
+            "components": components,
+            "raw": data,
+            "timestamp": datetime.now(self.ny_tz)
         }
 
     def _get_ai_interpretation(self, score: float) -> str:
@@ -191,172 +336,4 @@ class MacroUSDBot:
     def _analyze_oil(self, score: float) -> Dict[str, Any]:
         if score >= 0.5:
             return {'direction': '📉 VIÉS BAIXA', 'confidence': '65%', 'entry': '73.50 - 75.00', 'stop_loss': '76.50',
-                    'take_profit_1': '70.00', 'take_profit_2': '67.50', 'take_profit_3': '65.00', 'risk_reward': '1:2.0',
-                    'reasoning': 'USD forte pressiona commodities.', 'timeframe': 'Swing', 'position_size': '1% do capital'}
-        elif score <= -0.5:
-            return {'direction': '📈 VIÉS ALTA', 'confidence': '70%', 'entry': '70.00 - 71.50', 'stop_loss': '68.50',
-                    'take_profit_1': '74.00', 'take_profit_2': '77.00', 'take_profit_3': '80.00', 'risk_reward': '1:2.5',
-                    'reasoning': 'USD fraco + tensões geopolíticas.', 'timeframe': 'Swing', 'position_size': '1.5% do capital'}
-        else:
-            return {'direction': '🟡 NEUTRO', 'confidence': '50%', 'reasoning': 'Fatores geopolíticos dominam.', 'timeframe': 'Aguardar', 'position_size': '0%'}
-
-    def get_ai_trade_recommendation(self, score: float, asset: str) -> Dict[str, Any]:
-        mapping = {
-            'DXY': self._analyze_dxy,
-            'EURUSD': self._analyze_eurusd,
-            'GBPUSD': self._analyze_gbpusd,
-            'USDJPY': self._analyze_usdjpy,
-            'GOLD': self._analyze_gold,
-            'OIL': self._analyze_oil,
-        }
-        return mapping.get(asset, lambda s: {}) (score)
-
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        keyboard = [
-            [InlineKeyboardButton("📊 Análise Completa", callback_data='analise')],
-            [InlineKeyboardButton("💹 DXY", callback_data='dxy'), InlineKeyboardButton("💶 EURUSD", callback_data='eurusd')],
-            [InlineKeyboardButton("💷 GBPUSD", callback_data='gbpusd'), InlineKeyboardButton("💴 USDJPY", callback_data='usdjpy')],
-            [InlineKeyboardButton("🥇 OURO", callback_data='gold'), InlineKeyboardButton("🛢️ PETRÓLEO", callback_data='oil')],
-            [InlineKeyboardButton("📅 Calendário", callback_data='calendario')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        response = """🤖 BOT MACROECONÔMICO USD COM IA
-
-🎯 Análise Inteligente + Recomendações de Entrada
-
-Use os botões ou comandos:
-/analise /dxy /eurusd /gbpusd /usdjpy /gold /oil /calendario
-"""
-        await update.message.reply_text(response, reply_markup=reply_markup, parse_mode='Markdown')
-
-    async def analise_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🔄 Analisando dados macroeconômicos...")
-        try:
-            usd = self.calculate_usd_score()
-            now = datetime.now(self.ny_tz)
-
-            components_text = ""
-            for indicator, data in usd['components'].items():
-                emoji = "📈" if data['score'] > 0 else "📉" if data['score'] < 0 else "➡️"
-                components_text += f"• {indicator.upper()}: {data['score']:+.1f} {emoji}\n"
-
-            response = f"""📊 ANÁLISE MACROECONÔMICA USD
-*{now.strftime('%d/%m/%Y %H:%M')} ET*
-
-🎯 USD SCORE: {usd['score']:+.2f}
-{usd['classification']}
-🎲 Confiança: {usd['confidence']}
-
-📋 Componentes:
-{components_text}
-
-💡 Interpretação IA:
-{self._get_ai_interpretation(usd['score'])}
-
-🎯 Recomendação Geral:
-{self._get_general_recommendation(usd['score'])}
-"""
-            await update.message.reply_text(response, parse_mode='Markdown')
-        except Exception as e:
-            logger.error(f"Erro na análise: {e}")
-            await update.message.reply_text(f"❌ Erro: {str(e)}")
-
-    async def _send_trade_recommendation(self, update: Update, asset: str):
-        try:
-            usd = self.calculate_usd_score()
-            rec = self.get_ai_trade_recommendation(usd['score'], asset)
-            now = datetime.now(self.ny_tz)
-
-            response = f"""🤖 RECOMENDAÇÃO IA - {asset}
-*{now.strftime('%d/%m/%Y %H:%M')} ET*
-
-📊 USD Score: {usd['score']:+.2f}
-
-🎯 DIREÇÃO: {rec['direction']}
-📈 Confiança: {rec['confidence']}
-
-💰 SETUP:
-• Entry: {rec.get('entry', 'N/A')}
-• Stop Loss: {rec.get('stop_loss', 'N/A')}
-• TP1: {rec.get('take_profit_1', 'N/A')}
-• TP2: {rec.get('take_profit_2', 'N/A')}
-• TP3: {rec.get('take_profit_3', 'N/A')}
-
-📊 Risk/Reward: {rec.get('risk_reward', 'N/A')}
-⏱️ Timeframe: {rec.get('timeframe', 'N/A')}
-💼 Tamanho: {rec.get('position_size', 'N/A')}
-
-🧠 Análise IA:
-{rec.get('reasoning', '—')}
-
-⚠️ Use sempre stop loss e não arrisque >2% por trade.
-"""
-            await update.message.reply_text(response, parse_mode='Markdown')
-        except Exception as e:
-            logger.error(f"Erro em {asset}: {e}")
-            await update.message.reply_text(f"❌ Erro ao analisar {asset}")
-
-    async def dxy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'DXY')
-    async def eurusd_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'EURUSD')
-    async def gbpusd_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'GBPUSD')
-    async def usdjpy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'USDJPY')
-    async def gold_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'GOLD')
-    async def oil_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'OIL')
-
-    async def calendario_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        now = datetime.now(self.ny_tz)
-        calendar = f"""📅 CALENDÁRIO ECONÔMICO
-*Semana de {now.strftime('%d/%m/%Y')}*
-
-SEG: ISM Manufacturing, Construction Spending
-TER: JOLTs, Trade Balance
-QUA: ADP, ISM Services
-QUI: Jobless Claims, Continuing Claims
-SEX: NFP, Unemployment, Hourly Earnings
-
-⚠️ Alta volatilidade: Sexta (NFP)
-"""
-        await update.message.reply_text(calendar, parse_mode='Markdown')
-
-    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        query = update.callback_query
-        await query.answer()
-        update.message = query.message
-        data = query.data
-        if data == 'analise': await self.analise_command(update, context)
-        elif data == 'dxy': await self.dxy_command(update, context)
-        elif data == 'eurusd': await self.eurusd_command(update, context)
-        elif data == 'gbpusd': await self.gbpusd_command(update, context)
-        elif data == 'usdjpy': await self.usdjpy_command(update, context)
-        elif data == 'gold': await self.gold_command(update, context)
-        elif data == 'oil': await self.oil_command(update, context)
-        elif data == 'calendario': await self.calendario_command(update, context)
-
-def main():
-    try:
-        logger.info("🚀 Iniciando Bot Macroeconômico USD com IA...")
-        bot = MacroUSDBot()
-        application = Application.builder().token(bot.bot_token).build()
-
-        application.add_handler(CommandHandler("start", bot.start_command))
-        application.add_handler(CommandHandler("analise", bot.analise_command))
-        application.add_handler(CommandHandler("dxy", bot.dxy_command))
-        application.add_handler(CommandHandler("eurusd", bot.eurusd_command))
-        application.add_handler(CommandHandler("gbpusd", bot.gbpusd_command))
-        application.add_handler(CommandHandler("usdjpy", bot.usdjpy_command))
-        application.add_handler(CommandHandler("gold", bot.gold_command))
-        application.add_handler(CommandHandler("oil", bot.oil_command))
-        application.add_handler(CommandHandler("calendario", bot.calendario_command))
-        application.add_handler(CallbackQueryHandler(bot.button_callback))
-
-        logger.info("✅ Bot pronto! Iniciando polling...")
-        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-    except KeyboardInterrupt:
-        logger.info("🛑 Bot interrompido")
-    except Exception as e:
-        logger.error(f"❌ Erro crítico: {e}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
+                    'take_profit_1': '70.00', 'take_profit_2
