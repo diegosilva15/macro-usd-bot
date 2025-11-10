@@ -336,4 +336,340 @@ class MacroUSDBot:
     def _analyze_oil(self, score: float) -> Dict[str, Any]:
         if score >= 0.5:
             return {'direction': '📉 VIÉS BAIXA', 'confidence': '65%', 'entry': '73.50 - 75.00', 'stop_loss': '76.50',
-                    'take_profit_1': '70.00', 'take_profit_2
+                    'take_profit_1': '70.00', 'take_profit_2': '67.50', 'take_profit_3': '65.00', 'risk_reward': '1:2.0',
+                    'reasoning': 'USD forte pressiona commodities.', 'timeframe': 'Swing', 'position_size': '1% do capital'}
+        elif score <= -0.5:
+            return {'direction': '📈 VIÉS ALTA', 'confidence': '70%', 'entry': '70.00 - 71.50', 'stop_loss': '68.50',
+                    'take_profit_1': '74.00', 'take_profit_2': '77.00', 'take_profit_3': '80.00', 'risk_reward': '1:2.5',
+                    'reasoning': 'USD fraco + tensões geopolíticas.', 'timeframe': 'Swing', 'position_size': '1.5% do capital'}
+        else:
+            return {'direction': '🟡 NEUTRO', 'confidence': '50%', 'reasoning': 'Fatores geopolíticos dominam.', 'timeframe': 'Aguardar', 'position_size': '0%'}
+
+    def get_symbol_map(self):
+        return {
+            "DXY": "DXY",
+            "EURUSD": "EUR/USD",
+            "GBPUSD": "GBP/USD",
+            "USDJPY": "USD/JPY",
+            "GOLD": "XAU/USD",
+            "OIL": "WTI"
+        }
+
+    def attach_price(self, asset: str, rec: Dict[str, Any]) -> Dict[str, Any]:
+        sym = self.get_symbol_map().get(asset)
+        if not sym:
+            return rec
+        try:
+            p = self.fetch_td_price(sym)
+            if p["price"] is not None:
+                rec["live_price"] = p["price"]
+            if p["change_pct"] is not None:
+                rec["live_change_pct"] = p["change_pct"]
+        except Exception as e:
+            logger.warning(f"Preço {asset} falhou: {e}")
+        return rec
+
+    def get_ai_trade_recommendation(self, score: float, asset: str) -> Dict[str, Any]:
+        mapping = {
+            'DXY': self._analyze_dxy,
+            'EURUSD': self._analyze_eurusd,
+            'GBPUSD': self._analyze_gbpusd,
+            'USDJPY': self._analyze_usdjpy,
+            'GOLD': self._analyze_gold,
+            'OIL': self._analyze_oil,
+        }
+        return mapping.get(asset, lambda s: {})(score)
+
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        keyboard = [
+            [InlineKeyboardButton("📊 Análise Completa", callback_data='analise')],
+            [InlineKeyboardButton("📌 Briefing Macro", callback_data='briefing'), InlineKeyboardButton("📅 Calendário Hoje", callback_data='calendario_hoje')],
+            [InlineKeyboardButton("💹 DXY", callback_data='dxy'), InlineKeyboardButton("💶 EURUSD", callback_data='eurusd')],
+            [InlineKeyboardButton("💷 GBPUSD", callback_data='gbpusd'), InlineKeyboardButton("💴 USDJPY", callback_data='usdjpy')],
+            [InlineKeyboardButton("🥇 OURO", callback_data='gold'), InlineKeyboardButton("🛢️ PETRÓLEO", callback_data='oil')],
+            [InlineKeyboardButton("📅 Calendário Semanal", callback_data='calendario')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        response = """🤖 BOT MACROECONÔMICO USD COM IA
+
+🎯 Análise Inteligente + Recomendações de Entrada
+
+Use os botões ou comandos:
+/analise /briefing /calendario /calendario_hoje /dxy /eurusd /gbpusd /usdjpy /gold /oil
+"""
+        await update.message.reply_text(response, reply_markup=reply_markup, parse_mode='Markdown')
+
+    async def analise_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🔄 Analisando dados macroeconômicos...")
+        try:
+            usd = self.calculate_usd_score()
+            now = datetime.now(self.ny_tz)
+
+            components_text = ""
+            for indicator, data in usd['components'].items():
+                emoji = "📈" if data['score'] > 0 else "📉" if data['score'] < 0 else "➡️"
+                components_text += f"• {indicator.upper()}: {data['score']:+.1f} {emoji}\n"
+
+            response = f"""📊 ANÁLISE MACROECONÔMICA USD
+*{now.strftime('%d/%m/%Y %H:%M')} ET*
+
+🎯 USD SCORE: {usd['score']:+.2f}
+{usd['classification']}
+🎲 Confiança: {usd['confidence']}
+
+📋 Componentes:
+{components_text}
+
+💡 Interpretação IA:
+{self._get_ai_interpretation(usd['score'])}
+
+🎯 Recomendação Geral:
+{self._get_general_recommendation(usd['score'])}
+"""
+            await update.message.reply_text(response, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Erro na análise: {e}")
+            await update.message.reply_text(f"❌ Erro: {str(e)}")
+
+    async def _send_trade_recommendation(self, update: Update, asset: str):
+        try:
+            usd = self.calculate_usd_score()
+            rec = self.get_ai_trade_recommendation(usd['score'], asset)
+            rec = self.attach_price(asset, rec)
+            now = datetime.now(self.ny_tz)
+
+            price_line = ""
+            if rec.get("live_price") is not None:
+                chg = rec.get("live_change_pct")
+                chg_txt = f" ({chg:+.2f}%)" if isinstance(chg, (float, int)) else ""
+                price_line = f"\n📈 Preço: {rec['live_price']}{chg_txt}"
+
+            response = f"""🤖 RECOMENDAÇÃO IA - {asset}
+*{now.strftime('%d/%m/%Y %H:%M')} ET*
+
+📊 USD Score: {usd['score']:+.2f}{price_line}
+
+🎯 DIREÇÃO: {rec['direction']}
+📈 Confiança: {rec['confidence']}
+
+💰 SETUP:
+• Entry: {rec.get('entry', 'N/A')}
+• Stop Loss: {rec.get('stop_loss', 'N/A')}
+• TP1: {rec.get('take_profit_1', 'N/A')}
+• TP2: {rec.get('take_profit_2', 'N/A')}
+• TP3: {rec.get('take_profit_3', 'N/A')}
+
+📊 Risk/Reward: {rec.get('risk_reward', 'N/A')}
+⏱️ Timeframe: {rec.get('timeframe', 'N/A')}
+💼 Tamanho: {rec.get('position_size', 'N/A')}
+
+🧠 Análise IA:
+{rec.get('reasoning', '—')}
+
+⚠️ Use sempre stop loss e não arrisque >2% por trade.
+"""
+            await update.message.reply_text(response, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Erro em {asset}: {e}")
+            await update.message.reply_text(f"❌ Erro ao analisar {asset}")
+
+    async def dxy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'DXY')
+    async def eurusd_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'EURUSD')
+    async def gbpusd_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'GBPUSD')
+    async def usdjpy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'USDJPY')
+    async def gold_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'GOLD')
+    async def oil_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE): await self._send_trade_recommendation(update, 'OIL')
+
+    async def calendario_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        now_et = datetime.now(self.ny_tz)
+        text = f"""📅 CALENDÁRIO ECONÔMICO
+
+⚠️ Calendário em tempo real em breve.
+
+Por enquanto, consulte:
+🔗 https://www.forexfactory.com/calendar
+🔗 https://www.investing.com/economic-calendar/
+
+Principais eventos desta semana:
+• NFP (Payroll) - Sexta-feira 08:30 ET
+• CPI (Inflação) - Quarta-feira 08:30 ET
+• FOMC Minutes - Quarta-feira 14:00 ET
+• Initial Claims - Quinta-feira 08:30 ET
+
+Atualizado: {now_et.strftime('%d/%m/%Y %H:%M')} ET
+"""
+        await update.message.reply_text(text, disable_web_page_preview=True)
+
+    async def calendario_hoje_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        now_et = datetime.now(self.ny_tz)
+        text = f"""📅 CALENDÁRIO HOJE ({now_et.strftime('%d/%m/%Y')})
+
+⚠️ Calendário em tempo real em breve.
+
+Consulte eventos de hoje em:
+🔗 https://www.forexfactory.com/calendar
+🔗 https://www.investing.com/economic-calendar/
+
+Atualizado: {now_et.strftime('%H:%M')} ET
+"""
+        await update.message.reply_text(text, disable_web_page_preview=True)
+
+    def _compute_probabilities(self, data: dict) -> dict:
+        score = 0.0
+        try:
+            adp = float(data.get("adp",{}).get("last", 0))
+            if adp < 100: score += 1.0
+            elif adp < 150: score += 0.5
+        except: pass
+        try:
+            isms = float(data.get("ism_services",{}).get("last", 50))
+            if isms < 50: score += 0.7
+        except: pass
+        try:
+            jolts = float(data.get("jolts",{}).get("last", 0))
+            prevj = float(data.get("jolts",{}).get("previous", 0)) or jolts
+            if jolts < prevj: score += 0.4
+        except: pass
+        try:
+            claims = float(data.get("claims",{}).get("last", 0))
+            if claims > 230: score += 0.4
+        except: pass
+
+        base_prob = min(0.85, 0.50 + score/3.0)
+        alt_prob = 1 - base_prob
+        return {"base": round(base_prob*100), "alt": round(alt_prob*100)}
+
+    def _generate_headline(self, usd_score: float, data: dict) -> str:
+        headline = ""
+        if usd_score >= 1.0:
+            headline = "📈 Dólar forte: dados macro bullish impulsionam DXY e pressionam commodities."
+        elif usd_score <= -1.0:
+            headline = "📉 Dólar fraco: dados macro bearish derrubam DXY e favorecem ouro/pares."
+        else:
+            if data.get("cpi_yoy", {}).get("last") is not None and float(data["cpi_yoy"]["last"]) < 2.5:
+                headline = "🟡 Inflação controlada + dados mistos = Fed cauteloso, mercado busca direcional."
+            elif data.get("unemployment", {}).get("last") is not None and float(data["unemployment"]["last"]) > 4.0:
+                headline = "🟡 Mercado de trabalho esfriando + inflação em queda = corte de juros no radar."
+            else:
+                headline = "🟡 Mercado em consolidação: aguardando novos catalisadores macroeconômicos."
+        return f"📊 Headline: {headline}"
+
+    async def briefing_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("🔄 Montando briefing macro com dados ao vivo...")
+        try:
+            usd = self.calculate_usd_score()
+            data = usd["raw"]
+            probs = self._compute_probabilities(data)
+
+            try:
+                adp = float(data.get("adp",{}).get("last", 120))
+                isms = float(data.get("ism_services",{}).get("last", 52))
+                nfp_proj = max(0, round(0.8*adp + 8*(isms-50)))
+            except:
+                nfp_proj = 160
+
+            try:
+                ahe_last = float(data.get("ahe",{}).get("last", 0.2))
+            except:
+                ahe_last = 0.2
+            try:
+                unemp_last = float(data.get("unemployment",{}).get("last", 4.1))
+            except:
+                unemp_last = 4.1
+
+            px_dxy = self.fetch_td_price(self.get_symbol_map()["DXY"])
+            px_xau = self.fetch_td_price(self.get_symbol_map()["GOLD"])
+            px_oil = self.fetch_td_price(self.get_symbol_map()["OIL"])
+
+            direcional = self._get_ai_interpretation(usd['score'])
+            recomend = self._get_general_recommendation(usd['score'])
+            headline_text = self._generate_headline(usd['score'], data)
+
+            text = f"""{headline_text}
+
+📌 Briefing Macro — USD/DXY
+
+Visão geral: {direcional}
+USD Score: {usd['score']:+.2f} ({usd['classification']}, confiança {usd['confidence']})
+
+Cenário Base (probabilidade: {probs['base']}%) — Desaceleração
+• Payroll: +{_fmt_num(nfp_proj)} empregos
+• Ganho médio por hora: {_fmt_pct(ahe_last)}
+• Taxa de desemprego: {unemp_last:.1f}%
+Justificativas:
+• Dados recentes sinalizam arrefecimento do emprego
+• Claims elevadas reforçam risco de payroll mais fraco
+
+Cenário Alternativo (probabilidade: {probs['alt']}%) — Surpresa de Força
+• Payroll: +{_fmt_num(max(nfp_proj+80, nfp_proj*1.5))} empregos
+• Ganho médio por hora: {_fmt_pct(max(ahe_last+0.1, ahe_last))}
+• Taxa de desemprego: {max(unemp_last-0.1, 3.5):.1f}%
+Drivers:
+• Possível revisão sazonal/volatilidade setorial
+• Efeito atrasado de contratações públicas/saúde
+
+Implicações de política monetária:
+• Se cenário base confirmar: aumenta precificação de corte; Treasuries tendem a cair nos yields, DXY pressionado.
+• Se cenário alternativo: reduz prob. de corte; yields sobem, DXY fortalece.
+
+Mercado agora:
+• DXY: {px_dxy.get('price','N/A')} ({(px_dxy.get('change_pct') or 0):+.2f}%)
+• Ouro (XAUUSD): {px_xau.get('price','N/A')} ({(px_xau.get('change_pct') or 0):+.2f}%)
+• WTI: {px_oil.get('price','N/A')} ({(px_oil.get('change_pct') or 0):+.2f}%)
+
+Tático sugerido:
+{recomend}
+
+Dica: Evite abrir posição grande imediatamente antes de releases de alto impacto.
+"""
+            await update.message.reply_text(text)
+        except Exception as e:
+            logger.error(f"Briefing erro: {e}")
+            await update.message.reply_text("❌ Não consegui montar o briefing agora. Tente novamente em instantes.")
+
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        update.message = query.message
+        data = query.data
+        if data == 'analise': await self.analise_command(update, context)
+        elif data == 'briefing': await self.briefing_command(update, context)
+        elif data == 'calendario': await self.calendario_command(update, context)
+        elif data == 'calendario_hoje': await self.calendario_hoje_command(update, context)
+        elif data == 'dxy': await self.dxy_command(update, context)
+        elif data == 'eurusd': await self.eurusd_command(update, context)
+        elif data == 'gbpusd': await self.gbpusd_command(update, context)
+        elif data == 'usdjpy': await self.usdjpy_command(update, context)
+        elif data == 'gold': await self.gold_command(update, context)
+        elif data == 'oil': await self.oil_command(update, context)
+
+def main():
+    try:
+        logger.info("🚀 Iniciando Bot Macroeconômico USD com IA...")
+        bot = MacroUSDBot()
+        application = Application.builder().token(bot.bot_token).build()
+
+        application.add_handler(CommandHandler("start", bot.start_command))
+        application.add_handler(CommandHandler("analise", bot.analise_command))
+        application.add_handler(CommandHandler("briefing", bot.briefing_command))
+        application.add_handler(CommandHandler("calendario", bot.calendario_command))
+        application.add_handler(CommandHandler("calendario_hoje", bot.calendario_hoje_command))
+        application.add_handler(CommandHandler("dxy", bot.dxy_command))
+        application.add_handler(CommandHandler("eurusd", bot.eurusd_command))
+        application.add_handler(CommandHandler("gbpusd", bot.gbpusd_command))
+        application.add_handler(CommandHandler("usdjpy", bot.usdjpy_command))
+        application.add_handler(CommandHandler("gold", bot.gold_command))
+        application.add_handler(CommandHandler("oil", bot.oil_command))
+        application.add_handler(CallbackQueryHandler(bot.button_callback))
+
+        logger.info("✅ Bot pronto! Iniciando polling...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    except KeyboardInterrupt:
+        logger.info("🛑 Bot interrompido")
+    except Exception as e:
+        logger.error(f"❌ Erro crítico: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
