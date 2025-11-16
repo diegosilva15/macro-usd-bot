@@ -1109,12 +1109,12 @@ Dica: Evite abrir posição grande imediatamente antes de releases de alto impac
 
         lines.append("")
 
-        # Classificação do cenário macro (risco-on/off/neutro)
+      # Classificação do cenário macro (risco-on/off/neutro)
         scenario_text, result_text = self._classify_macro_scenario(changes)
         lines.append("*Leitura de cenário*")
         lines.append(scenario_text)
         lines.append("")
-        lines.append(f"**{result_text}**")
+        lines.append(result_text)  # <--- TIREI os ** duplos
 
         final_text = "\n".join(lines)
 
